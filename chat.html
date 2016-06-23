@@ -1,0 +1,186 @@
+<script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.6.4/jquery.min.js"></script>
+<script src="dist/sweetalert.min.js"></script>
+<link rel="stylesheet" type="text/css" href="dist/sweetalert.css">
+<script type="text/javascript">
+
+var my_uuid = prompt("Enter UUID here.");
+var online = false;
+var friends = {};
+
+function join(uuid){
+	socket.emit('join', uuid);
+	$('#loggedin').text('Logged in as '+uuid);
+}
+function leave(){
+	socket.emit('leave');
+}
+function closeAllOthers(){
+	socket.emit('closeOthers');
+}
+function setOnline(){
+	socket.emit('setOnline');
+}
+function setOffline(){
+	socket.emit('setOffline');
+}
+function toggleOnline(){
+	if(online === true){
+		setOffline();
+	}
+	else {
+		setOnline();
+	}
+}
+function getOnline(recipients){
+	socket.emit('getOnline', recipients);
+}
+function sendRequest(recipient){
+	socket.emit('sendRequest', recipient);
+}
+function cancelRequest(destination, rid){
+	socket.emit('cancelRequest', {destination: destination, rid: rid});
+}
+function tryAccept(origin, rid){
+	socket.emit('tryAccept', {origin: origin, rid: rid});
+}
+function denyRequest(origin, rid){
+	socket.emit('denyRequest', {origin: origin, rid: rid});
+}
+
+	var socket = io.connect('http://localhost:8008');
+	// on connection to server, ask for user's name with an anonymous callback
+	socket.on('connect', function(){
+		join(my_uuid);
+		console.log("joined");
+	});
+	// listener, whenever the server emits 'msg_user_handle', this updates the chat body
+	socket.on('goOnline', function () {
+		online = true;
+		console.log("Online Triggered");
+		$('#Status').val('Online');
+	});
+
+	socket.on('goOffline', function(){
+		online = false;
+		console.log("Offline Triggered");
+		$('#Status').val('Offline');
+	});
+
+	socket.on('isOnline', function(response){
+		friends = response;
+	});
+
+	socket.on('ringing', function(recipient, rid){
+		swal({
+			title: "Calling "+ recipient,
+			text: "Please wait while we connect you.",
+			showCancelButton: false,
+			confirmButtonColor: "#ff3232",
+			confirmButtonText: "Cancel",
+			closeOnConfirm: true
+		},
+		function(){
+			cancelRequest(recipient, rid);
+		});
+	});
+
+	socket.on('requestFailed', function(justification){
+		swal({
+			title: "Oops!",
+			text: "Your request failed: " + justification,
+			type: "warning"
+			});
+	});
+
+	socket.on('requestDenied', function(uuid){
+		swal({
+			title: "Sorry...",
+			text: uuid + " denied your call!",
+			type: "error"
+			},
+			function(){
+				closeAllOthers();
+		});
+	});
+
+	socket.on('requestAccepted', function(uuid, zoomID){
+		swal({
+			title: 'Call Accepted',
+			text: 'Redirecting to Zoom ID ' + zoomID,
+			type: 'success',
+			timer: 2000,
+			showConfirmButton: false
+		});
+	});
+
+	socket.on('acceptSucceed', function(zoomID){
+		swal({
+			title: 'Call Accepted',
+			text: 'Redirecting to Zoom ID ' + zoomID,
+			type: 'success',
+			timer: 2000,
+			showConfirmButton: false
+		});
+	});
+
+	socket.on('incomingRequest', function(uuid, rid){
+		swal({
+			title: "Incoming Call",
+			text: uuid + " is calling you.",
+			type: "warning",
+			showCancelButton: true,
+			confirmButtonColor: '#32CD32',
+			confirmButtonText: "Accept",
+			cancelButtonText: "Reject",
+			closeOnConfirm: false,
+			closeOnCancel: false
+		},
+		function(isConfirm){
+			if(isConfirm){
+				tryAccept(uuid, rid);
+			}
+			else {
+				denyRequest(uuid, rid);
+				swal("Rejected Call", "The caller has been told to go away.", "error");
+			}
+		});
+	});
+
+	socket.on('closeIncomingCall', function(){
+		swal.close();
+	});
+
+	socket.on('closeAlerts', function() {
+		swal.close();
+	});
+	// on load of page
+	$(function(){
+		// when the client clicks SEND
+		$('#request').click( function() {
+			var recipeint = $('#recipient').val();
+			if(recipient == '' || jQuery.trim(recipient).length == 0)
+			return false;
+			$('#recipient').val('');
+			// tell server to execute 'sendchat' and send along one parameter
+			socket.emit('sendRequest', recipeint);
+		});
+		// when the client hits ENTER on their keyboard
+		$('#recipient').keypress(function(e) {
+			if(e.which == 13) {
+				$(this).blur();
+				$('#request').click();
+			}
+		});
+	});
+</script>
+
+<div id="menu">
+<p id="loggedin">
+</p>
+<input type="button" id="Status" value="Offline" onclick="toggleOnline();">
+</div>
+<div style="float:left;width:550px;height:250px;overflow:scroll-y;padding:10px;">
+	<input id="recipient" style="width:200px;" />
+	<input type="button" id="request" value="Request Call" />
+</div>
