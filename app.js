@@ -5,7 +5,11 @@
 
 var http = require('http');
 var express = require("express");
+var request = require('request');
 var app = express();
+
+var key = process.env.ZOOM_KEY;
+var secret = process.env.ZOOM_SECRET;
 
 var server = http.createServer(app);
 var io = require('socket.io').listen(server);
@@ -44,8 +48,62 @@ function ruid(){
   }
 }
 
-function spawnRoom(email, participants){
-  return s4();
+function spawnRoom(email, hostSocket, keys){
+  request({
+    uri: "https://api.zoom.us/v1/user/custcreate",
+    method: "POST",
+    form: {
+      api_key: key,
+      api_secret: secret,
+      email: email,
+      type: 2
+    }
+  }, function(error, response, body1) {
+    var jbody1 = JSON.parse(body1);
+    return request({
+      uri: "https://api.zoom.us/v1/meeting/create",
+      method: "POST",
+      form: {
+        api_key: key,
+        api_secret: secret,
+        host_id: jbody1["id"],
+        topic: "Bjönd Secure Meeting",
+        type: 1
+      }
+    }, function(error, response, body2) {
+      console.log(body2);
+      var jbody2 = JSON.parse(body2);
+      console.log({start: jbody2["start_url"], join: jbody2["join_url"]});
+      var zoomIDs = {start: jbody2["start_url"], join: jbody2["join_url"]};
+      distributeRoom(zoomIDs, hostSocket, keys);
+    });
+  });
+}
+
+function distributeRoom(zoomIDs, socket, keys){
+  console.log(zoomIDs);
+
+  var originSocketFound = false;
+  for(var openSocket in sockets[keys.origin]){
+    if(sockets[keys.origin][openSocket].id === activeRequests[keys.rid].originSocket){
+      sockets[keys.origin][openSocket].emit('requestAccepted', socket.uuid, zoomIDs.join);
+      originSocketFound = true;
+    }
+  }
+
+  if(originSocketFound === false){
+    sockets[keys.origin][0].emit('requestAccepted', socket.uuid, zoomID);
+  }
+
+  socket.emit('acceptSucceed', zoomIDs.start);
+
+  //This will close incomingCall notifs in other windows
+  for(var openSocket in sockets[socket.uuid]){
+    if(sockets[socket.uuid][openSocket].id !== socket.id){ //All sockets but the one accepting
+      sockets[socket.uuid][openSocket].emit('closeIncomingCall');
+    }
+  }
+  clearRequest(keys.rid);
 }
 
 function clearRequest(rid){
@@ -198,29 +256,14 @@ io.sockets.on('connection', function (socket) {
           clearRequest(keys.rid);
           return;
         }
-        var zoomID = spawnRoom();
 
-        var originSocketFound = false;
         for(var openSocket in sockets[keys.origin]){
           if(sockets[keys.origin][openSocket].id === activeRequests[keys.rid].originSocket){
-            sockets[keys.origin][openSocket].emit('requestAccepted', socket.uuid, zoomID);
-            originSocketFound = true;
+            sockets[keys.origin][openSocket].emit('connecting');
           }
         }
 
-        if(originSocketFound === false){
-          sockets[keys.origin][0].emit('requestAccepted', socket.uuid, zoomID);
-        }
-
-        socket.emit('acceptSucceed', zoomID);
-
-        //This will close incomingCall notifs in other windows
-        for(var openSocket in sockets[socket.uuid]){
-          if(sockets[socket.uuid][openSocket].id !== socket.id){ //All sockets but the one accepting
-            sockets[socket.uuid][openSocket].emit('closeIncomingCall');
-          }
-        }
-        clearRequest(keys.rid);
+        var zoomIDs = spawnRoom(socket.uuid, socket, keys);
       }
       else{
         socket.emit('requestFailed', 'Invalid Key Pair');

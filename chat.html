@@ -104,23 +104,31 @@ function denyRequest(origin, rid){
 		});
 	});
 
-	socket.on('requestAccepted', function(uuid, zoomID){
+	socket.on('connecting', function(uuid){
 		swal({
-			title: 'Call Accepted',
-			text: 'Redirecting to Zoom ID ' + zoomID,
-			type: 'success',
-			timer: 2000,
+			title: "Connecting you",
+			text: "Please hold while we create a meeting room for you",
 			showConfirmButton: false
 		});
 	});
 
-	socket.on('acceptSucceed', function(zoomID){
+	socket.on('requestAccepted', function(uuid, zoomID){
+		console.log(zoomID);
 		swal({
 			title: 'Call Accepted',
 			text: 'Redirecting to Zoom ID ' + zoomID,
 			type: 'success',
-			timer: 2000,
-			showConfirmButton: false
+			showConfirmButton: true
+		});
+	});
+
+	socket.on('acceptSucceed', function(zoomID){
+		console.log(zoomID);
+		swal({
+			title: 'Call Accepted',
+			text: 'Redirecting to Zoom ID ' + zoomID,
+			type: 'success',
+			showConfirmButton: true
 		});
 	});
 
@@ -134,6 +142,7 @@ function denyRequest(origin, rid){
 			confirmButtonText: "Accept",
 			cancelButtonText: "Reject",
 			closeOnConfirm: false,
+			showLoaderOnConfirm: true,
 			closeOnCancel: false
 		},
 		function(isConfirm){
