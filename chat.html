@@ -4,7 +4,7 @@
 <link rel="stylesheet" type="text/css" href="dist/sweetalert.css">
 <script type="text/javascript">
 
-var my_uuid = prompt("Enter UUID here.");
+var my_uuid = prompt("Enter e-mail here.");
 var online = false;
 var friends = {};
 
@@ -48,7 +48,8 @@ function denyRequest(origin, rid){
 	socket.emit('denyRequest', {origin: origin, rid: rid});
 }
 
-	var socket = io.connect('http://localhost:8008');
+	//var socket = io.connect('http://localhost:8008');
+	var socket = io.connect('http://cpmajgaard.com:27000')
 	// on connection to server, ask for user's name with an anonymous callback
 	socket.on('connect', function(){
 		join(my_uuid);
@@ -69,6 +70,16 @@ function denyRequest(origin, rid){
 
 	socket.on('isOnline', function(response){
 		friends = response;
+	});
+
+	socket.on('updateList', function(list){
+		$('#recipient').empty();
+		$(list).each(function (){
+			$("<option />", {
+				val: this,
+				text: this.valueOf()
+			}).appendTo('#recipient');
+		});
 	});
 
 	socket.on('ringing', function(recipient, rid){
@@ -106,8 +117,9 @@ function denyRequest(origin, rid){
 
 	socket.on('connecting', function(uuid){
 		swal({
-			title: "Connecting you",
+			title: "Call Accepted",
 			text: "Please hold while we create a meeting room for you",
+			type: success,
 			showConfirmButton: false
 		});
 	});
@@ -115,20 +127,28 @@ function denyRequest(origin, rid){
 	socket.on('requestAccepted', function(uuid, zoomID){
 		console.log(zoomID);
 		swal({
-			title: 'Call Accepted',
-			text: 'Redirecting to Zoom ID ' + zoomID,
-			type: 'success',
+			title: uuid + 'is waiting...',
+			text: 'Click to join!',
 			showConfirmButton: true
+		},
+		function(){
+			window.open(zoomID);
+			swal.close();
 		});
 	});
 
 	socket.on('acceptSucceed', function(zoomID){
 		console.log(zoomID);
 		swal({
-			title: 'Call Accepted',
-			text: 'Redirecting to Zoom ID ' + zoomID,
+			title: 'Hold tight',
+			text: 'Redirecting to Zoom',
 			type: 'success',
-			showConfirmButton: true
+			timer: 500,
+			showConfirmButton: false
+		},
+		function(){
+			window.open(zoomID);
+			swal.close();
 		});
 	});
 
@@ -190,6 +210,6 @@ function denyRequest(origin, rid){
 <input type="button" id="Status" value="Offline" onclick="toggleOnline();">
 </div>
 <div style="float:left;width:550px;height:250px;overflow:scroll-y;padding:10px;">
-	<input id="recipient" style="width:200px;" />
+	<select id="recipient" style="width:200px;" />
 	<input type="button" id="request" value="Request Call" />
 </div>

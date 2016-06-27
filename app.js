@@ -15,10 +15,10 @@ var server = http.createServer(app);
 var io = require('socket.io').listen(server);
 var fs = require('fs');
 
-server.listen(8008);
+server.listen(27000);
 
 // routing
-app.get('/', function (req, res) {
+app.get('/zoomtest', function (req, res) {
   res.sendfile(__dirname + '/chat.html');
 });
 
@@ -48,7 +48,23 @@ function ruid(){
   }
 }
 
-function spawnRoom(email, hostSocket, keys){
+function updateSockets(){
+  list = [];
+  for(var user in statuses){
+    if(statuses[user] === 'online'){
+      list.push(user);
+    }
+  }
+
+  for(var key in sockets){
+    for(var sock in sockets[key]){
+      sockets[key][sock].emit('updateList', list);
+    }
+  }
+}
+
+//custCreates a user, if succesful, then calls createIM
+function custCreate(email, hostSocket, keys){
   request({
     uri: "https://api.zoom.us/v1/user/custcreate",
     method: "POST",
@@ -58,31 +74,57 @@ function spawnRoom(email, hostSocket, keys){
       email: email,
       type: 2
     }
-  }, function(error, response, body1) {
-    var jbody1 = JSON.parse(body1);
-    return request({
-      uri: "https://api.zoom.us/v1/meeting/create",
-      method: "POST",
-      form: {
-        api_key: key,
-        api_secret: secret,
-        host_id: jbody1["id"],
-        topic: "Bjönd Secure Meeting",
-        type: 1
-      }
-    }, function(error, response, body2) {
-      console.log(body2);
-      var jbody2 = JSON.parse(body2);
-      console.log({start: jbody2["start_url"], join: jbody2["join_url"]});
-      var zoomIDs = {start: jbody2["start_url"], join: jbody2["join_url"]};
-      distributeRoom(zoomIDs, hostSocket, keys);
-    });
+  }, function(error, response, body) {
+    if(!error && response.statusCode === 200){
+      jbody = JSON.parse(body);
+      createIM(jbody["id"], hostSocket, keys)
+    }
+    else{
+      return 'error';
+      console.log(body);
+    }
   });
 }
 
-function distributeRoom(zoomIDs, socket, keys){
-  console.log(zoomIDs);
+//Creates IM and if succesful, distrutes links to sockets.
+function createIM(hostID, hostSocket, keys){
+  request({
+    uri: "https://api.zoom.us/v1/meeting/create",
+    method: "POST",
+    form: {
+      api_key: key,
+      api_secret: secret,
+      host_id: hostID,
+      topic: "Bjönd Secure Meeting",
+      type: 1
+    }
+  }, function(error, response, body) {
+    if(!error && response.statusCode === 200){
+      var jbody = JSON.parse(body);
+      var zoomIDs = {start: jbody["start_url"], join: jbody["join_url"]};
+      distributeRoom(zoomIDs, hostSocket, keys);
+    }
+    else{
+      return 'error';
+      console.log(body);
+    }
+  });
+}
 
+function spawnRoom(email, hostSocket, keys){
+  custCreate(email, hostSocket, keys);
+}
+
+function distributeRoom(zoomIDs, socket, keys){
+  clearRequest(keys.rid);
+  console.log(zoomIDs);
+  socket.emit('acceptSucceed', zoomIDs.start);
+
+  setTimeout(distributeRoom2(zoomIDs, hostSocket, keys), 3500)
+
+}
+
+function distributeRoom2(zoomIDs, hostSocket, keys){
   var originSocketFound = false;
   for(var openSocket in sockets[keys.origin]){
     if(sockets[keys.origin][openSocket].id === activeRequests[keys.rid].originSocket){
@@ -95,15 +137,12 @@ function distributeRoom(zoomIDs, socket, keys){
     sockets[keys.origin][0].emit('requestAccepted', socket.uuid, zoomID);
   }
 
-  socket.emit('acceptSucceed', zoomIDs.start);
-
   //This will close incomingCall notifs in other windows
   for(var openSocket in sockets[socket.uuid]){
     if(sockets[socket.uuid][openSocket].id !== socket.id){ //All sockets but the one accepting
       sockets[socket.uuid][openSocket].emit('closeIncomingCall');
     }
   }
-  clearRequest(keys.rid);
 }
 
 function clearRequest(rid){
@@ -126,6 +165,7 @@ io.sockets.on('connection', function (socket) {
     if(sockets[uuid].length === 1){
       socket.emit('goOnline');
       statuses[uuid] = 'online';
+      updateSockets();
     }
 
     //If they are currently online somewhere else,
@@ -149,6 +189,7 @@ io.sockets.on('connection', function (socket) {
     if(sockets[socket.uuid].length === 0){
       statuses[socket.uuid] = 'offline';
     }
+    updateSockets();
   });
 
   //When user sets their online status, echo it to their other sockets
@@ -157,6 +198,7 @@ io.sockets.on('connection', function (socket) {
     for(var openSocket in sockets[socket.uuid]){
       sockets[socket.uuid][openSocket].emit('goOnline');
     }
+    updateSockets();
   });
 
   //When user sets their offline status, echo it to their other sockets.
@@ -165,6 +207,7 @@ io.sockets.on('connection', function (socket) {
     for(var openSocket in sockets[socket.uuid]){
       sockets[socket.uuid][openSocket].emit('goOffline');
     }
+    updateSockets();
   });
 
 	// when the user disconnects, remove the socket
@@ -184,6 +227,7 @@ io.sockets.on('connection', function (socket) {
         }
       }
     }
+    updateSockets();
 	});
 
   //Takes an array of UUIDs and returns online status as an array
@@ -191,7 +235,7 @@ io.sockets.on('connection', function (socket) {
     var response = {};
 
     for(var user in targets){
-      response[targets[user]](sockets[targets[user]] !== 'undefined' && statuses[targets[user]] === 'online');
+      response[targets[user]] = (sockets[targets[user]] !== 'undefined' && statuses[targets[user]] === 'online');
     }
 
     socket.emit('isOnline', response);
@@ -263,7 +307,7 @@ io.sockets.on('connection', function (socket) {
           }
         }
 
-        var zoomIDs = spawnRoom(socket.uuid, socket, keys);
+      spawnRoom(socket.uuid, socket, keys);
       }
       else{
         socket.emit('requestFailed', 'Invalid Key Pair');
